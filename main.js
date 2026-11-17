@@ -283,10 +283,12 @@ function drag(e) {
         clientY = e.clientY;
     }
     const courtRect = courtContainer.getBoundingClientRect();
-    let x = clientX - courtRect.left - (activePlayer.offsetWidth / 2);
-    let y = clientY - courtRect.top - (activePlayer.offsetHeight / 2);
-    x = Math.max(0, Math.min(x, courtRect.width - activePlayer.offsetWidth));
-    y = Math.max(0, Math.min(y, courtRect.height - activePlayer.offsetHeight));
+    // スマホ等でコートを縮小表示している場合（responsive.js）の拡大率。PC（等倍）では 1 になり、従来と同じ計算になる
+    const scale = (courtRect.width / courtContainer.offsetWidth) || 1;
+    let x = (clientX - courtRect.left) / scale - (activePlayer.offsetWidth / 2);
+    let y = (clientY - courtRect.top) / scale - (activePlayer.offsetHeight / 2);
+    x = Math.max(0, Math.min(x, courtContainer.offsetWidth - activePlayer.offsetWidth));
+    y = Math.max(0, Math.min(y, courtContainer.offsetHeight - activePlayer.offsetHeight));
     activePlayer.style.left = x + 'px';
     activePlayer.style.top = y + 'px';
     if (activePlayer === selectedPlayer) {
