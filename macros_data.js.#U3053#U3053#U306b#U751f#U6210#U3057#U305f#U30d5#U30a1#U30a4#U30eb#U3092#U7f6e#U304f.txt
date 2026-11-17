@@ -1,0 +1,1 @@
+macros_data.js は研究用プロジェクトで tools/export_web_data.py を実行して生成し、index.html と同じ場所に置いてください。（README 参照）

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>バスケットボール戦術記録ツール</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="modal-overlay">
+        <div id="modal-content">
+            <h2 id="modal-title">選手データ・セットアップ</h2>
+
+            <div id="mode-select">
+                <button type="button" id="mode-card-practice" class="mode-card is-selected">
+                    <span class="mode-card-title">練習モード</span>
+                    <span class="mode-card-desc">AIによる戦術提案・オフェンス採点・戦術ボード<br>（選手プロフィールの入力が必要）</span>
+                </button>
+                <button type="button" id="mode-card-game" class="mode-card">
+                    <span class="mode-card-title">試合モード</span>
+                    <span class="mode-card-desc">戦術ボード ＋ リアルタイム・スコアシート<br>Four Factors・TS%・USG% を自動計算</span>
+                </button>
+            </div>
+
+            <div id="profile-setup">
+                <p>戦術ボードを使用する前に、選手のプロフィール（スキル）を読み込んでください。</p>
+
+                <div class="modal-controls">
+                    <button id="import-profiles-btn">選手CSVインポート</button>
+                    <button id="export-profiles-btn">選手CSVエクスポート</button>
+                    <input type="file" id="profiles-csv-input" accept=".csv" style="display: none;">
+                </div>
+
+                <div id="player-profiles-form">
+                    </div>
+
+                <div class="modal-footer">
+                    <button id="proceed-to-board-btn" disabled>戦術ボードへ進む</button>
+                </div>
+            </div>
+
+            <div id="game-start-footer" class="modal-footer" style="display: none;">
+                <p class="suggest-note">試合モードは選手プロフィールの入力なしで、すぐに記録を始められます。</p>
+                <button id="start-game-btn">試合モードを開始</button>
+            </div>
+            <div class="modal-cancel-row"><button type="button" id="modal-cancel-btn" style="display: none;">← 元のモードに戻る</button></div>
+        </div>
+    </div>
+    <div id="main-content" class="content-locked">
+        <div id="mode-nav">
+            <span class="mode-nav-label">モード</span>
+            <button type="button" id="nav-practice" class="mode-nav-btn active">練習モード</button>
+            <button type="button" id="nav-game" class="mode-nav-btn">試合モード</button>
+            <span id="mode-nav-hint" class="suggest-note"></span>
+        </div>
+
+        <div id="game-area" style="display: none;">
+            <div id="game-panel">
+                <h3>試合モード：リアルタイム・スコアシート</h3>
+                <div class="game-meta">
+                    <label>自チーム <input type="text" id="game-team" maxlength="20" placeholder="チーム名"></label>
+                    <label>相手チーム <input type="text" id="game-opp" maxlength="20" placeholder="相手チーム名"></label>
+                    <label>試合日 <input type="date" id="game-date"></label>
+                </div>
+
+                <div id="game-dashboard"></div>
+
+                <h4 class="game-sheet-title">選手別スコアシート</h4>
+                <p class="suggest-note">選手の番号を入力し、<b>▲ ＋1 / ▼ －1</b> で記録します。<b>成功の▲</b>を押すと試投数も自動で＋1、<b>試投の▲</b>は失敗（ミス）の記録になります。数値は自動保存され、画面を閉じても残ります。</p>
+                <div class="game-sheet-wrap"><table id="game-sheet"></table></div>
+                <div class="game-buttons">
+                    <button type="button" id="game-add-player" class="secondary">＋ 選手を追加</button>
+                    <button type="button" id="game-export-csv">CSVエクスポート</button>
+                    <button type="button" id="game-reset" class="danger">記録をリセット</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="court-container">
+            <div class="player team-a" id="blue1">b1</div>
+            <div class="player team-a" id="blue2">b2</div>
+            <div class="player team-a" id="blue3">b3</div>
+            <div class="player team-a" id="blue4">b4</div>
+            <div class="player team-a" id="blue5">b5</div>
+            <div class="player team-b" id="red1">r1</div>
+            <div class="player team-b" id="red2">r2</div>
+            <div class="player team-b" id="red3">r3</div>
+            <div class="player team-b" id="red4">r4</div>
+            <div class="player team-b" id="red5">r5</div>
+        </div>
+
+        <div id="timeline-controls">
+            <div class="timeline-container">
+                <div id="timeline-bar"></div>
+                <div id="timeline-cursor"></div>
+                <div id="timeline-keyframes"></div>
+            </div>
+            <div class="timeline-info">
+                <button id="play-pause-btn" class="timeline-nav-btn">再生 ▶</button>
+                <button id="prev-frame-btn" class="timeline-nav-btn">◀</button>
+                <span>Time: <strong id="time-display">0.0</strong> s</span>
+                <button id="next-frame-btn" class="timeline-nav-btn">▶</button>
+                <button id="save-frame-btn">この時間の配置を保存</button>
+            </div>
+        </div>
+
+        <div id="control-panel">
+            <button id="reset-btn">リセット</button>
+            <button id="import-btn">戦術CSVインポート</button>
+            <input type="file" id="csv-file-input" accept=".csv" style="display: none;">
+            <button id="export-btn">戦術CSVエクスポート</button>
+        </div>
+
+
+        <div id="practice-area">
+        <div id="mode-tabs">
+            <button id="tab-suggest" class="mode-tab active">戦術提案（AI）</button>
+            <button id="tab-score" class="mode-tab">採点モード（振り返り）</button>
+        </div>
+
+        <div id="suggest-panel">
+            <h3>戦術提案（AI）</h3>
+            <p class="suggest-note">赤の駒（r1〜r5）を<b>初期配置</b>に動かし、<b>ボール保持者</b>を選んでから「提案を生成」を押してください。選手データ（身長・10エリアのシュート率）は最初に入力したものを使います。</p>
+            <div id="suggest-data-info" class="suggest-note"></div>
+            <div class="suggest-controls">
+                <label>ボール保持者
+                    <select id="suggest-holder">
+                        <option value="auto" selected>ボード上の指定に従う（未指定なら r1）</option>
+                        <option value="0">r1</option><option value="1">r2</option><option value="2">r3</option>
+                        <option value="3">r4</option><option value="4">r5</option>
+                    </select>
+                </label>
+                <label>セットの長さ（最小マクロ数）
+                    <select id="suggest-minmacros">
+                        <option value="2">2本以上</option>
+                        <option value="3" selected>3本以上</option>
+                        <option value="4">4本</option>
+                    </select>
+                </label>
+                <label class="suggest-drive-box">
+                    <span><input type="checkbox" id="suggest-use-drive"> ドライブ／パスの重視を指定</span>
+                    <span class="suggest-slider-row">パス<input type="range" id="suggest-drive" min="0" max="1" step="0.05" value="0.5" disabled>ドライブ</span>
+                    <span id="suggest-drive-label" class="suggest-note"></span>
+                </label>
+                <label><input type="checkbox" id="suggest-use-blue"> 守備の初期位置を青駒から取る</label>
+            </div>
+            <div class="suggest-buttons">
+                <button id="suggest-generate-btn">提案を生成</button>
+                <button id="suggest-zones-btn" class="secondary">エリア表示（10エリアの境界を確認）</button>
+            </div>
+            <details class="suggest-advanced">
+                <summary>詳細設定</summary>
+                <label><input type="checkbox" id="suggest-fliplr"> 左右を反転（エリアの「右/左」が逆のとき）</label>
+                <label>ゴール下とハイポストの境界 x(px): <input type="number" id="suggest-hpx" value="150" min="80" max="260" step="5"></label>
+                <label>シュート率の基準:
+                    <select id="suggest-basis">
+                        <option value="free" selected>フリー（守備なし）で測った値</option>
+                        <option value="game">試合での成功率</option>
+                    </select>
+                </label>
+            </details>
+            <div id="suggest-msg" class="suggest-note"></div>
+            <div id="suggest-results"></div>
+        </div>
+
+
+        <div id="score-panel" style="display: none;">
+            <h3>採点モード（試合の振り返り）</h3>
+            <p class="suggest-note">自分たちのオフェンスを、<b>赤（攻撃）と青（守備）の10駒</b>で動かして記録し、「採点する」を押してください。</p>
+            <ol class="suggest-note score-steps">
+                <li>駒を動かして「この時間の配置を保存」を、動きの節目ごとに記録します（最初の配置と最後の配置は必須。0.5秒刻みで記録できます）。</li>
+                <li>ボールを持っている赤の駒を選び「ボール保持者にする」で、パスのたびに保持者を記録します。<b>最後にシュートを打つ選手が、最後の配置でボールを持つ</b>ようにします。</li>
+                <li>青の駒（守備）も、実際の守備の位置に動かします。守備者の位置が、シュートの難しさの計算に使われます。</li>
+            </ol>
+            <div class="suggest-controls">
+                <div class="score-shot-box">シュート時点: <b id="score-shot-label">最後のキーフレーム</b><br>
+                    <button id="score-set-shot-btn" class="secondary small">いまの時刻をシュート時点にする</button>
+                    <button id="score-clear-shot-btn" class="secondary small">最後に戻す</button>
+                </div>
+                <label><input type="checkbox" id="score-use-macros" checked> 近い基本戦術を判定する</label>
+                <label><input type="checkbox" id="score-use-ai" checked> AI案と比べる</label>
+            </div>
+            <div class="suggest-buttons">
+                <button id="score-run-btn">採点する</button>
+                <button id="score-copy-btn" class="secondary" disabled>結果をコピー</button>
+            </div>
+            <div id="score-msg" class="suggest-note"></div>
+            <div id="score-results"></div>
+        </div>
+        </div>
+
+        <div id="status-display">
+            <p><strong>選択中の選手</strong></p>
+            <div id="player-info">
+                <p>選手を選択してください</p>
+            </div>
+        </div>
+    </div>
+    <script src="main.js"></script>
+    <script src="macros_data.js"></script>
+    <script src="engine.js"></script>
+    <script src="suggest.js"></script>
+    <script src="scoring.js"></script>
+    <script src="score_ui.js"></script>
+    <script src="analytics.js"></script>
+    <script src="game_ui.js"></script>
+    <script src="mode.js"></script>
+</body>
+</html>
