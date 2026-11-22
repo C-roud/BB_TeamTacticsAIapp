@@ -33,6 +33,8 @@
     info.textContent = `マクロデータ: ${window.MACRO_DATA.count}本（生成: ${window.MACRO_DATA.generated}）`;
     $('suggest-generate-btn').addEventListener('click', onGenerate);
     $('suggest-zones-btn').addEventListener('click', toggleZones);
+    const defNote = () => { $('suggest-defense-note').textContent = $('suggest-defense').value === 'man' ? '' : '※ ゾーンの動きは簡易モデル（基本位置は一般的な配置を仮定）'; };
+    $('suggest-defense').addEventListener('change', defNote); defNote();
     $('suggest-use-drive').addEventListener('change', () => { $('suggest-drive').disabled = !$('suggest-use-drive').checked; updateDriveLabel(); });
     $('suggest-drive').addEventListener('input', updateDriveLabel);
     ['suggest-fliplr', 'suggest-hpx', 'suggest-basis'].forEach((id) => $(id).addEventListener('change', () => {
@@ -126,6 +128,7 @@
           ballHolder: board.holder, topK: 3, minMacros: Number($('suggest-minmacros').value),
           driveWeight: $('suggest-use-drive').checked ? Number($('suggest-drive').value) : null,
           defInit: $('suggest-use-blue').checked ? board.blue : null,
+          defense: $('suggest-defense').value,
         };
         lastResults = engine.suggest(board.init, profiles, opts);
         renderResults(lastResults, ((performance.now() - t0) / 1000).toFixed(1));
@@ -136,6 +139,8 @@
       }
     }, 30);
   }
+
+  const DEFENSE_JP = { man: 'マンツーマン', zone23: '2-3ゾーン', zone32: '3-2ゾーン' };
 
   function renderResults(results, sec) {
     const box = $('suggest-results');
@@ -150,7 +155,7 @@
       h.textContent = `案${r.rank}　${r.chain_jp.join(' → ')}`;
       const meta = document.createElement('div'); meta.className = 'suggest-card-meta';
       const imp = r.improvement;
-      meta.textContent = `約${r.duration_seconds}秒 ／ 最終シュート: ${r.best_shot.shooter_id.replace('red', 'r')} ${r.best_shot.area_name} ／ ` +
+      meta.textContent = `守備: ${DEFENSE_JP[r.defense] || 'マンツーマン'} ／ 約${r.duration_seconds}秒 ／ 最終シュート: ${r.best_shot.shooter_id.replace('red', 'r')} ${r.best_shot.area_name} ／ ` +
         `期待得点 ${r.best_shot.ep.toFixed(2)}（開始直後に打つより ${imp >= 0 ? '+' : ''}${imp.toFixed(2)}） ／ 関与 ${r.involved.length}/5人`;
       const det = document.createElement('details');
       const sum = document.createElement('summary'); sum.textContent = '各マクロの役割と説明';

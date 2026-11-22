@@ -5,7 +5,7 @@
  *   出力  : 上位K件のセットオフェンス（0.5秒ごとのフレーム・得点機会・説明文）
  * 座標系: コート画像(court.jpg)を表示したコンテナの px。x=ベースライン(0)→ハーフライン、y=上サイドライン(0)→下サイドライン
  * 重要な前提（卒論で正直に書くべき点）:
- *   - 守備は「各攻撃選手にマンツーマンで追従する簡易モデル」。期待得点 = (エリア別シュート率) x (得点価値 2or3) x (守備者の接近による減衰)
+ *   - 守備は簡易モデル。既定は「各攻撃選手にマンツーマンで追従」。defense に 'zone23'(2-3) / 'zone32'(3-2) を指定すると、ゾーンの基本位置にボール側へ寄る動きを加えた簡易ゾーン守備になる。期待得点 = (エリア別シュート率) x (得点価値 2or3) x (守備者の接近による減衰)
  *   - プロフィールの成功率は「フリー(守備なし)で測った値」として扱う（fgBasis='free'）。試合の得点を予測するものではなく、案を比較する指標
  * ===================================================================== */
 (function (root) {
@@ -68,7 +68,16 @@
     infeasible: 0.05, collide: 0.10, involve: 0.05, min_gain: -9.0,
   };
   const PRESET_V4 = { dist_move: 0.10, path: 0.03, max_travel: 500, involve: 0.03, min_improve: 0.05 };
-  const DEFAULT_DEF = { gap: 70, gap_ball: 56, alpha: 0.7, step_max: 100, screen_r: 26, screen_speed: 18, screen_slow: 0.45 };
+  const DEFAULT_DEF = { gap: 70, gap_ball: 56, alpha: 0.7, step_max: 100, screen_r: 26, screen_speed: 18, screen_slow: 0.45,
+    // ゾーン守備用（簡易モデル）: スクリーンの減速はマンツーより弱い / ボール側への寄り / ボールへの当たり / 持ち場に入った攻撃選手へのマーク
+    screen_slow_zone: 0.7, zone_shift: 0.5, zone_shift_r: 260, zone_press_r: 230, zone_att_r: 85, zone_att_pull: 0.45 };
+  // ゾーンの基本位置（リング中心からの相対 [dx, dy]。dx=ベースラインから遠ざかる向き、dy=リングの高さからの左右差）。
+  // コーチングで一般的な配置を目安にした仮定値で、実データから求めたものではない（画面で動きを見て調整する前提）。
+  const ZONE_ANCHORS = {
+    zone23: [[200, -70], [200, 70], [60, -110], [75, 0], [60, 110]],      // 2-3: 上に2人、下に3人（両ブロック付近 + 中央）
+    zone32: [[205, 0], [160, -125], [160, 125], [55, -75], [55, 75]],      // 3-2: 上に3人（トップ + 両ウィング）、下に2人
+  };
+  const DEFENSE_NAMES = { man: 'マンツーマン', zone23: '2-3ゾーン', zone32: '3-2ゾーン' };
   const OPEN_FREE = { lo: 0.55, near: 15, far: 70 };
   const OPEN_GAME = { per_px: 0.004, lo: 0.7, hi: 1.2 };
 
@@ -164,12 +173,45 @@
         gap = Math.min(gap, 0.6 * n);
         return [a[0] + vx / n * gap, a[1] + vy / n * gap];
       }
-      sim.D = init ? copyPts(init) : att0.map((a, i) => target(a, i === holder));
+      // ---- ゾーン守備（this.defType が zone23 / zone32 のときだけ使う。マンツーマンの経路は従来のまま）
+      const rel = ZONE_ANCHORS[this.defType];
+      const baseA = rel ? rel.map((r) => [ring[0] + r[0], ring[1] + r[1]]) : null;
+      const permD = [0, 1, 2, 3, 4];                       // 守備者 d が担当する基本位置の番号
+      let lastHold = holder;
+      /** 守備者(青駒)ごとの目標位置を返す。基本位置 → ボール側へ寄る → ボールに一番近い人が当たる → 持ち場の攻撃選手に付く */
+      function zoneTargets(att, hold) {
+        if (hold >= 0) lastHold = hold;
+        const ball = att[lastHold >= 0 ? lastHold : 0];
+        const dB = baseA.map((a) => dist(a, ball));
+        let press = 0; for (let a = 1; a < 5; a++) if (dB[a] < dB[press]) press = a;
+        const tA = baseA.map((a, k) => {
+          if (k === press && dB[k] < P.zone_press_r) return target(ball, true);                 // ボールへ当たる
+          const f = P.zone_shift * clamp01(1 - dB[k] / P.zone_shift_r);                          // ボール側へ寄る
+          return [a[0] + (ball[0] - a[0]) * f, a[1] + (ball[1] - a[1]) * f];
+        });
+        return tA.map((p, k) => {
+          if (k === press && dB[k] < P.zone_press_r) return p;
+          let bj = -1, bd = P.zone_att_r;                                                         // 持ち場の中の攻撃選手（ボール保持者以外）
+          for (let j = 0; j < 5; j++) { if (j === lastHold) continue; const d = dist(att[j], p); if (d < bd) { bd = d; bj = j; } }
+          if (bj < 0) return p;
+          const t = target(att[bj], false);
+          return [p[0] + (t[0] - p[0]) * P.zone_att_pull, p[1] + (t[1] - p[1]) * P.zone_att_pull];
+        });
+      }
+      if (rel && init) {                                    // 青駒の初期位置から、基本位置への割当を決める（5! 通りで移動距離の合計が最小のもの）
+        let bestS = 1e18;
+        PERMS.forEach((pm) => { let s = 0; for (let d = 0; d < 5; d++) s += dist(init[d], baseA[pm[d]]); if (s < bestS) { bestS = s; for (let d = 0; d < 5; d++) permD[d] = pm[d]; } });
+      }
+      const slow = rel ? P.screen_slow_zone : P.screen_slow;
+      if (init) sim.D = copyPts(init);
+      else if (rel) { const t0 = zoneTargets(att0, holder); sim.D = permD.map((a) => copy2(t0[a])); }
+      else sim.D = att0.map((a, i) => target(a, i === holder));
       sim.step = function (attPrev, attNow, hold) {
         const speed = attNow.map((a, j) => dist(a, attPrev[j]));
         const newD = [];
+        const zt = rel ? zoneTargets(attNow, hold) : null;
         for (let i = 0; i < 5; i++) {
-          const tgt = target(attNow[i], i === hold);
+          const tgt = rel ? zt[permD[i]] : target(attNow[i], i === hold);
           let mvx = P.alpha * (tgt[0] - sim.D[i][0]), mvy = P.alpha * (tgt[1] - sim.D[i][1]);
           const l = Math.hypot(mvx, mvy);
           if (l > P.step_max) { mvx *= P.step_max / l; mvy *= P.step_max / l; }
@@ -177,7 +219,7 @@
           for (let j = 0; j < 5; j++) {                    // スクリーン効果: 静止中の他の攻撃選手が進路を塞ぐと減速
             if (j === i || speed[j] > P.screen_speed) continue;
             if (pointSegDist(attNow[j], sim.D[i], nd) < P.screen_r) {
-              nd = [sim.D[i][0] + (nd[0] - sim.D[i][0]) * P.screen_slow, sim.D[i][1] + (nd[1] - sim.D[i][1]) * P.screen_slow];
+              nd = [sim.D[i][0] + (nd[0] - sim.D[i][0]) * slow, sim.D[i][1] + (nd[1] - sim.D[i][1]) * slow];
               break;
             }
           }
@@ -381,10 +423,11 @@
     /**
      * @param init   5x2 の駒の中心座標[px]
      * @param players [{id, height_cm, fg:[10]}]（成功率は % でも 0-1 でも可）
-     * @param o      { ballHolder=0, driveWeight=null, topK=3, maxDepth=4, beam=12, maxSeconds=24, minMacros=2, diverse=true, defInit=null }
+     * @param o      { ballHolder=0, driveWeight=null, topK=3, maxDepth=4, beam=12, maxSeconds=24, minMacros=2, diverse=true, defInit=null, defense='man'|'zone23'|'zone32' }
      */
     suggest(init, players, o) {
-      o = Object.assign({ ballHolder: 0, driveWeight: null, topK: 3, maxDepth: 4, beam: 12, maxSeconds: 24, minMacros: 2, diverse: true, defInit: null }, o || {});
+      o = Object.assign({ ballHolder: 0, driveWeight: null, topK: 3, maxDepth: 4, beam: 12, maxSeconds: 24, minMacros: 2, diverse: true, defInit: null, defense: 'man' }, o || {});
+      this.defType = ZONE_ANCHORS[o.defense] ? o.defense : 'man';      // 'man' | 'zone23' | 'zone32'（以降の守備シミュレーション全体で使う）
       const G = this.G, W = this.W, m = this.margin;
       if (!Array.isArray(init) || init.length !== 5) throw new Error('init は 5 人分の座標が必要です');
       players = normalizePlayers(players);
@@ -459,6 +502,7 @@
         `FG%=${(b.fg * 100).toFixed(0)}% / 最寄りの守備者まで${(b.open_px / G.pxPerFt).toFixed(1)}ft（補正 ×${this.openMult(b.open_px).toFixed(2)}）` +
         ` → 期待得点 ${b.ep.toFixed(2)}点/本（開始直後にそのまま打つ場合: ${base.ep.toFixed(2)} → ${(b.ep - base.ep >= 0 ? '+' : '')}${(b.ep - base.ep).toFixed(2)}）`);
       const invIds = Array.from(st.inv).sort().map((p) => players[p].id);
+      lines.push(`守備モデル: ${DEFENSE_NAMES[this.defType || 'man']}${this.defType && this.defType !== 'man' ? '（簡易モデル。基本位置は一般的な配置を仮定）' : ''}`);
       lines.push(`関与した選手: ${invIds.join(', ')}（${st.inv.size}/5人）`);
       const frames = st.att.map((a, k) => ({ t: Math.round(k * FRAME_DT * 10) / 10, att: a, dfn: st.dfn[k], hold: st.hold[k] }));
       return {
@@ -467,7 +511,7 @@
         duration_seconds: (st.att.length - 1) * FRAME_DT,
         best_shot: { shooter_id: shooter.id, player: b.player, area: b.zone, area_name: AREA_NAMES[b.zone], fg: b.fg, ep: b.ep, open_px: b.open_px, t_sec: b.t_sec, pos: b.pos },
         baseline_ep: base.ep, improvement: b.ep - base.ep, involved: invIds, assignments: assigns,
-        explanation: lines.join('\n'), frames,
+        defense: this.defType || 'man', explanation: lines.join('\n'), frames,
       };
     }
 
@@ -484,7 +528,7 @@
     }
   }
 
-  const api = { Engine, GEOM_APP, makeAppAreaOf, AREA_NAMES, DEFAULT_W, DEFAULT_DEF, PRESET_V4, FRAME_DT, MOVE_PX, normalizePlayers, PERMS };
+  const api = { Engine, GEOM_APP, makeAppAreaOf, AREA_NAMES, DEFAULT_W, DEFAULT_DEF, PRESET_V4, FRAME_DT, MOVE_PX, normalizePlayers, PERMS, ZONE_ANCHORS, DEFENSE_NAMES };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.BBEngine = api;
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
